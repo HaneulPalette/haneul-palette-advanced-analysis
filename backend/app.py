@@ -1087,3 +1087,421 @@ Your features harmonize beautifully with the {season} palette.
 Your {undertone.lower()} undertone is enhanced by balanced tonal coordination and refined seasonal harmony.
 """
     )
+
+# ============================================================
+# API ANALYSIS
+# ============================================================
+
+def analyze_image(image):
+
+    try:
+
+        if image is None:
+
+            return {
+                "success": False,
+                "error": "Please upload an image."
+            }
+
+
+        face = extract_face_skin(
+            image
+        )
+
+
+        if face is None:
+
+            return {
+                "success": False,
+                "error":
+                    "Face not detected clearly. "
+                    "Please upload a front-facing "
+                    "image with good lighting."
+            }
+
+
+        metrics = calculate_skin_metrics(
+            face
+        )
+
+
+        undertone, chroma = determine_undertone(
+            metrics
+        )
+
+
+        season = determine_season(
+            undertone,
+            chroma,
+            metrics
+        )
+
+
+        contrast_value = metrics.get(
+            "contrast",
+            0
+        )
+
+
+        if contrast_value >= 55:
+
+            contrast = "Very High"
+
+        elif contrast_value >= 42:
+
+            contrast = "High"
+
+        elif contrast_value >= 30:
+
+            contrast = "Medium"
+
+        else:
+
+            contrast = "Soft"
+
+
+        palette = SEASON_PALETTES.get(
+            season,
+            []
+        )
+
+
+        user_id = generate_user_id()
+
+
+        final_results = {
+
+            "undertone":
+                str(undertone),
+
+            "season":
+                str(season),
+
+            "contrast":
+                str(contrast),
+
+            "chroma":
+                str(chroma),
+
+            "palette":
+                [
+                    str(x)
+                    for x in palette
+                ],
+
+            "metrics": {
+
+                "r":
+                    float(metrics["r"]),
+
+                "g":
+                    float(metrics["g"]),
+
+                "b":
+                    float(metrics["b"]),
+
+                "brightness":
+                    float(metrics["brightness"]),
+
+                "saturation":
+                    float(metrics["saturation"]),
+
+                "warm_score":
+                    float(metrics["warm_score"]),
+
+                "contrast":
+                    float(metrics["contrast"])
+            }
+        }
+
+
+        TEMP_RESULTS[user_id] = (
+            json.dumps(
+                final_results
+            )
+        )
+
+
+        # ----------------------------------------------------
+        # PAYMENT FORM
+        # ----------------------------------------------------
+
+        form_url = (
+            "https://docs.google.com/forms/d/e/"
+            "1FAIpQLSeplyA6W9MT2dvAG_W9VfFMngs4fKvcLMcM09CzHY41VtFX1g/"
+            "viewform?usp=pp_url"
+            f"&entry.2029390535={user_id}"
+        )
+
+
+        return {
+
+            "success": True,
+
+            "user_id": user_id,
+
+            "undertone":
+                undertone,
+
+            "season":
+                season,
+
+            "contrast":
+                contrast,
+
+            "chroma":
+                chroma,
+
+            "palette":
+                palette,
+
+            "price":
+                "₹799",
+
+            "payment_form":
+                form_url
+        }
+
+
+    except Exception as e:
+
+        print(
+            traceback.format_exc()
+        )
+
+        return {
+
+            "success": False,
+
+            "error":
+                str(e)
+        }
+
+
+# ============================================================
+# API ENDPOINT
+# ============================================================
+
+@app.post("/analyze")
+async def analyze_endpoint(
+    image: UploadFile = File(...)
+):
+
+    try:
+
+        image_bytes = await image.read()
+
+
+        pil_image = Image.open(
+            io.BytesIO(
+                image_bytes
+            )
+        ).convert("RGB")
+
+
+        result = analyze_image(
+            pil_image
+        )
+
+
+        return result
+
+
+    except Exception as e:
+
+        print(
+            traceback.format_exc()
+        )
+
+
+        return {
+
+            "success": False,
+
+            "error":
+                "Unable to process the uploaded image."
+        }
+
+
+# ============================================================
+# HEALTH CHECK
+# ============================================================
+
+@app.get("/")
+def home():
+
+    return {
+
+        "status":
+            "online",
+
+        "service":
+            "Haneul Palette Advanced Analysis",
+
+        "message":
+            "Backend is running."
+    }
+
+
+@app.get("/health")
+def health():
+
+    return {
+
+        "status":
+            "healthy"
+    }
+
+
+# ============================================================
+# FIND USER ROW
+# ============================================================
+
+def safe_get(row, index):
+
+    if not row or len(row) <= index:
+
+        return ""
+
+    return str(
+        row[index]
+    ).strip()
+
+
+def find_user_row(user_id):
+
+    sheet = get_google_sheet()
+
+    records = sheet.get_all_values()
+
+    if not records or len(records) < 2:
+
+        return None, None
+
+
+    headers = records[0]
+
+
+    try:
+
+        uid_idx = headers.index(
+            "User ID"
+        )
+
+        status_idx = headers.index(
+            "Status"
+        )
+
+        result_idx = headers.index(
+            "Final Results"
+        )
+
+    except ValueError:
+
+        return None, None
+
+
+    for i, row in enumerate(
+        records[1:],
+        start=2
+    ):
+
+        if len(row) <= uid_idx:
+
+            continue
+
+
+        uid = str(
+            row[uid_idx]
+        ).strip()
+
+
+        if uid == str(
+            user_id
+        ).strip():
+
+            return i, row
+
+
+    return None, None
+
+
+# ============================================================
+# VERIFICATION ENDPOINT
+# ============================================================
+
+@app.get("/verify/{user_id}")
+def verify_user(user_id: str):
+
+    try:
+
+        sheet = get_google_sheet()
+
+        row_index, row = find_user_row(
+            user_id
+        )
+
+
+        if row_index is None:
+
+            return {
+
+                "verified":
+                    False,
+
+                "message":
+                    "No results found for this User ID."
+            }
+
+
+        headers = sheet.get_all_values()[0]
+
+
+        status_idx = headers.index(
+            "Status"
+        )
+
+
+        status = safe_get(
+            row,
+            status_idx
+        ).lower()
+
+
+        if "verified" not in status:
+
+            return {
+
+                "verified":
+                    False,
+
+                "message":
+                    "Payment not verified yet."
+            }
+
+
+        return {
+
+            "verified":
+                True,
+
+            "message":
+                "Payment verified."
+        }
+
+
+    except Exception as e:
+
+        print(
+            traceback.format_exc()
+        )
+
+
+        return {
+
+            "verified":
+                False,
+
+            "message":
+                str(e)
+        }
